@@ -23,5 +23,12 @@
     "features": ["100% Natural", "Apto para todo tipo de piel", "Ecológico"],
     "order_now": "Pedir Ahora",
     "shipping": "Envío disponible a Egipto y España"
+  },
+  "about": {
+    "title": "Quiénes Somos",
+    "story": "Desde hace 25 años, nuestra familia cultiva luffa natural en el corazón de Beheira, Egipto. Cada esponja es recogida a mano, limpiada de forma tradicional y entregada 100% natural, tal como la produce la tierra.",
+    "stat_years": "Años de experiencia",
+    "stat_natural": "Natural",
+    "stat_countries": "Países"
   }
 }
