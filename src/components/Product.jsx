@@ -25,7 +25,7 @@ function FeatureList({ features }) {
   )
 }
 
-function ProductCard({ icon, title, price, originalPrice, features, badge, index }) {
+function ProductCard({ image, icon, title, price, originalPrice, features, badge, index }) {
   const { t } = useTranslation()
 
   return (
@@ -37,37 +37,45 @@ function ProductCard({ icon, title, price, originalPrice, features, badge, index
       viewport={{ once: true, amount: 0.3 }}
       whileHover={{ y: -6 }}
       transition={{ type: 'spring', stiffness: 300 }}
-      className="relative bg-white rounded-2xl shadow-lg p-8 flex flex-col items-center text-center flex-1 max-w-sm"
+      className="relative bg-white rounded-2xl shadow-lg overflow-hidden flex flex-col items-center text-center flex-1 max-w-sm"
     >
       {badge && (
-        <span className="absolute -top-3 bg-accent text-white text-xs font-kufi font-semibold px-4 py-1 rounded-full">
+        <span className="absolute top-4 end-4 z-10 bg-accent text-white text-xs font-kufi font-semibold px-4 py-1 rounded-full">
           {badge}
         </span>
       )}
 
-      <span className="text-4xl mb-4">{icon}</span>
+      <img
+        src={image}
+        alt={title}
+        className="w-full h-48 object-cover rounded-xl"
+      />
 
-      <h3 className="font-kufi text-xl font-semibold text-dark mb-2">{title}</h3>
+      <div className="p-8 flex flex-col items-center w-full">
+        <span className="text-4xl mb-4">{icon}</span>
 
-      <div className="mb-6">
-        {originalPrice && (
-          <span className="text-slate/60 line-through text-sm me-2">
-            {originalPrice}
-          </span>
-        )}
-        <span className="text-accent text-3xl font-bold font-playfair">{price}</span>
+        <h3 className="font-kufi text-xl font-semibold text-dark mb-2">{title}</h3>
+
+        <div className="mb-6">
+          {originalPrice && (
+            <span className="text-slate/60 line-through text-sm me-2">
+              {originalPrice}
+            </span>
+          )}
+          <span className="text-accent text-3xl font-bold font-playfair">{price}</span>
+        </div>
+
+        <FeatureList features={features} />
+
+        <a
+          href={WHATSAPP_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-auto w-full bg-accent hover:bg-accent/90 text-white font-kufi font-semibold py-3 rounded-xl transition-colors text-center block"
+        >
+          {t('product.order_now')}
+        </a>
       </div>
-
-      <FeatureList features={features} />
-
-      <a
-        href={WHATSAPP_URL}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="mt-auto w-full bg-accent hover:bg-accent/90 text-white font-kufi font-semibold py-3 rounded-xl transition-colors text-center block"
-      >
-        {t('product.order_now')}
-      </a>
     </motion.div>
   )
 }
@@ -92,6 +100,7 @@ export default function Product() {
         <div className="flex flex-col md:flex-row gap-8 justify-center items-stretch">
           <ProductCard
             index={0}
+            image="/lufara/images/product1.jpg"
             icon="🌿"
             title={t('product.single_title')}
             price={t('product.single_price')}
@@ -99,6 +108,7 @@ export default function Product() {
           />
           <ProductCard
             index={1}
+            image="/lufara/images/product2.jpg"
             icon="🌿🌿🌿"
             title={t('product.triple_title')}
             price={t('product.triple_price')}
