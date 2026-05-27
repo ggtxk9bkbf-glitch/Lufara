@@ -30,5 +30,16 @@
     "stat_years": "سنة خبرة",
     "stat_natural": "طبيعي",
     "stat_countries": "دولة"
+  },
+  "contact": {
+    "title": "تواصل معنا",
+    "subtitle": "نحن هنا للمساعدة",
+    "whatsapp": "واتساب",
+    "email": "البريد الإلكتروني",
+    "shipping_label": "نشحن لمصر وإسبانيا",
+    "name": "الاسم",
+    "email_field": "البريد الإلكتروني",
+    "message": "الرسالة",
+    "send": "إرسال"
   }
 }

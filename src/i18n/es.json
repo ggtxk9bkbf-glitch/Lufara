@@ -30,5 +30,16 @@
     "stat_years": "Años de experiencia",
     "stat_natural": "Natural",
     "stat_countries": "Países"
+  },
+  "contact": {
+    "title": "Contáctanos",
+    "subtitle": "Estamos aquí para ayudarte",
+    "whatsapp": "WhatsApp",
+    "email": "Correo electrónico",
+    "shipping_label": "Enviamos a Egipto y España",
+    "name": "Nombre",
+    "email_field": "Correo electrónico",
+    "message": "Mensaje",
+    "send": "Enviar"
   }
 }
