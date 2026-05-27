@@ -11,5 +11,17 @@
     "from_earth": "De la tierra",
     "natural": "100% Natural",
     "experience": "25 años de experiencia"
+  },
+  "product": {
+    "title": "Producto",
+    "single_title": "Una Pieza",
+    "single_price": "5€",
+    "triple_title": "3 Piezas",
+    "triple_price": "12€",
+    "triple_original": "15€",
+    "best_value": "Mejor Valor",
+    "features": ["100% Natural", "Apto para todo tipo de piel", "Ecológico"],
+    "order_now": "Pedir Ahora",
+    "shipping": "Envío disponible a Egipto y España"
   }
 }

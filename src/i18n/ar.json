@@ -11,5 +11,17 @@
     "from_earth": "من الأرض",
     "natural": "طبيعي 100%",
     "experience": "25 عاماً من الخبرة"
+  },
+  "product": {
+    "title": "المنتج",
+    "single_title": "قطعة واحدة",
+    "single_price": "250 جنيه",
+    "triple_title": "3 قطع",
+    "triple_price": "600 جنيه",
+    "triple_original": "750 جنيه",
+    "best_value": "الأوفر",
+    "features": ["طبيعي 100%", "مناسب لجميع أنواع البشرة", "صديق للبيئة"],
+    "order_now": "اطلب الآن",
+    "shipping": "شحن متاح لمصر وإسبانيا"
   }
 }
