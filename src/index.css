@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+@theme {
+  --color-cream: #FAF7F2;
+  --color-primary: #8B7355;
+  --color-secondary: #6B8F71;
+  --color-accent: #C4A962;
+  --color-dark: #2C2C2C;
+  --color-slate: #4A5568;
+
+  --font-kufi: 'Noto Kufi Arabic', sans-serif;
+  --font-playfair: 'Playfair Display', serif;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-cream);
+}

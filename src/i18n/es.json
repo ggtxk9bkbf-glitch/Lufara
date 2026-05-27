@@ -1,0 +1,45 @@
+{
+  "brand": "Lufara",
+  "tagline": "Natural desde la semilla",
+  "nav": {
+    "home": "Inicio",
+    "product": "Producto",
+    "about": "Nosotros",
+    "contact": "Contacto"
+  },
+  "hero": {
+    "from_earth": "De la tierra",
+    "natural": "100% Natural",
+    "experience": "25 años de experiencia"
+  },
+  "product": {
+    "title": "Producto",
+    "single_title": "Una Pieza",
+    "single_price": "5€",
+    "triple_title": "3 Piezas",
+    "triple_price": "12€",
+    "triple_original": "15€",
+    "best_value": "Mejor Valor",
+    "features": ["100% Natural", "Apto para todo tipo de piel", "Ecológico"],
+    "order_now": "Pedir Ahora",
+    "shipping": "Envío disponible a Egipto y España"
+  },
+  "about": {
+    "title": "Quiénes Somos",
+    "story": "Desde hace 25 años, nuestra familia cultiva luffa natural en el corazón de Beheira, Egipto. Cada esponja es recogida a mano, limpiada de forma tradicional y entregada 100% natural, tal como la produce la tierra.",
+    "stat_years": "Años de experiencia",
+    "stat_natural": "Natural",
+    "stat_countries": "Países"
+  },
+  "contact": {
+    "title": "Contáctanos",
+    "subtitle": "Estamos aquí para ayudarte",
+    "whatsapp": "WhatsApp",
+    "email": "Correo electrónico",
+    "shipping_label": "Enviamos a Egipto y España",
+    "name": "Nombre",
+    "email_field": "Correo electrónico",
+    "message": "Mensaje",
+    "send": "Enviar"
+  }
+}
