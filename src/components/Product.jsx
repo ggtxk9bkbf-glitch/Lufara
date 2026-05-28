@@ -100,7 +100,7 @@ export default function Product() {
         <div className="flex flex-col md:flex-row gap-8 justify-center items-stretch">
           <ProductCard
             index={0}
-            image="/Lufara/images/product1.jpg"
+            image="/Lufara/images/product1.png"
             icon="🌿"
             title={t('product.single_title')}
             price={t('product.single_price')}
@@ -108,7 +108,7 @@ export default function Product() {
           />
           <ProductCard
             index={1}
-            image="/Lufara/images/product2.jpg"
+            image="/Lufara/images/product2.png"
             icon="🌿🌿🌿"
             title={t('product.triple_title')}
             price={t('product.triple_price')}
