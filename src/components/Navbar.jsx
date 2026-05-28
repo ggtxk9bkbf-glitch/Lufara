@@ -10,12 +10,18 @@ const NAV_LINKS = [
 
 export default function Navbar() {
   const { t, i18n } = useTranslation()
-  const [scrolled, setScrolled] = useState(false)
+  const [pastHero, setPastHero] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 20)
+    const onScroll = () => {
+      // Hero section is 600vh tall with a sticky 100vh child, so the pinned
+      // scroll range ends at scrollY = 5 * viewport height. Show the navbar
+      // only once the user has scrolled past it.
+      setPastHero(window.scrollY > window.innerHeight * 5 - 80)
+    }
     window.addEventListener('scroll', onScroll, { passive: true })
+    onScroll()
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
 
@@ -35,8 +41,10 @@ export default function Navbar() {
 
   return (
     <nav
-      className={`fixed top-0 inset-x-0 z-50 transition-all duration-300 ${
-        scrolled ? 'bg-cream/95 shadow-md backdrop-blur-sm' : 'bg-transparent'
+      className={`fixed top-0 inset-x-0 z-50 transition-all duration-500 ${
+        pastHero
+          ? 'translate-y-0 opacity-100 bg-cream/95 shadow-md backdrop-blur-sm pointer-events-auto'
+          : '-translate-y-full opacity-0 pointer-events-none'
       }`}
     >
       <div className="mx-auto max-w-7xl flex items-center justify-between px-6 py-4">
