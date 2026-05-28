@@ -1,309 +1,222 @@
 import { useRef, useEffect, useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { getLenis } from '../lib/lenisInstance'
 
-const SEGMENT_SECONDS = 10
-const TOTAL_SEGMENTS = 3
-const STEP_DEBOUNCE_MS = 250
+const FALLBACK_DURATION = 30
+const HERO_VH = 400
+const VIDEO_URL = '/Lufara/videos/lufara_combined.mp4'
+const SCROLL_DEADZONE_PX = 3
+const SEEK_TOLERANCE = 0.05
+const VELOCITY_LOOKAHEAD = 0.3
 
-const OVERLAYS = {
-  1: 'من الأرض / De la tierra',
-  2: 'طبيعي 100% / 100% Natural',
-  3: 'Lufara — Natural desde la semilla',
+const OVERLAYS = [
+  { upper: 0.34, text: 'من الأرض / De la tierra', font: 'font-kufi' },
+  { upper: 0.67, text: 'طبيعي 100% / 100% Natural', font: 'font-kufi' },
+  { upper: 1.01, text: 'Lufara — Natural desde la semilla', font: 'font-playfair' },
+]
+
+function useScrollProgress(sectionRef) {
+  const [progress, setProgress] = useState(0)
+
+  useEffect(() => {
+    let ticking = false
+    let rafId = null
+    let lastY = window.scrollY
+
+    const compute = () => {
+      ticking = false
+      if (!sectionRef.current) return
+      const rect = sectionRef.current.getBoundingClientRect()
+      const sectionHeight = sectionRef.current.offsetHeight - window.innerHeight
+      const scrolled = -rect.top
+      setProgress(Math.min(1, Math.max(0, scrolled / sectionHeight)))
+    }
+
+    const onScroll = () => {
+      if (Math.abs(window.scrollY - lastY) < SCROLL_DEADZONE_PX) return
+      lastY = window.scrollY
+      if (ticking) return
+      ticking = true
+      rafId = requestAnimationFrame(compute)
+    }
+
+    window.addEventListener('scroll', onScroll, { passive: true })
+    compute()
+    return () => {
+      window.removeEventListener('scroll', onScroll)
+      if (rafId) cancelAnimationFrame(rafId)
+    }
+  }, [sectionRef])
+
+  return progress
 }
 
-function OverlayText({ visible, children }) {
+function OverlayText({ idKey, font, text }) {
   return (
     <AnimatePresence mode="wait">
-      {visible && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -20 }}
-          transition={{ duration: 0.5, ease: 'easeOut' }}
-          className="absolute inset-0 flex items-center justify-center pointer-events-none px-6"
-        >
-          <div className="bg-dark/40 backdrop-blur-xs rounded-2xl px-8 py-5 max-w-2xl text-center">
-            {children}
-          </div>
-        </motion.div>
-      )}
+      <motion.div
+        key={idKey}
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -20 }}
+        transition={{ duration: 0.5, ease: 'easeOut' }}
+        className="absolute inset-0 flex items-center justify-center pointer-events-none px-6"
+      >
+        <div className="bg-dark/40 backdrop-blur-xs rounded-2xl px-8 py-5 max-w-2xl text-center">
+          <p className={`${font} text-2xl md:text-4xl font-semibold text-white`}>
+            {text}
+          </p>
+        </div>
+      </motion.div>
     </AnimatePresence>
   )
 }
 
-function SegmentDots({ active, total, onJump, hidden }) {
-  return (
-    <div
-      className={`absolute end-4 md:end-8 top-1/2 -translate-y-1/2 flex flex-col gap-3 z-20 transition-opacity duration-300 ${
-        hidden ? 'opacity-0 pointer-events-none' : 'opacity-100'
-      }`}
-    >
-      {Array.from({ length: total }).map((_, i) => {
-        const filled = active >= i + 1
-        return (
-          <button
-            key={i}
-            type="button"
-            aria-label={`Jump to segment ${i + 1}`}
-            onClick={() => onJump(i + 1)}
-            className="group p-2 cursor-pointer"
-          >
-            <span
-              className={`block rounded-full transition-all duration-300 ${
-                filled
-                  ? 'bg-cream w-3 h-3'
-                  : 'bg-cream/30 w-2 h-2 group-hover:bg-cream/60'
-              }`}
-            />
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
 export default function Hero() {
+  const sectionRef = useRef(null)
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
   const primedRef = useRef(false)
-  const lockedRef = useRef(false)
-  const completedRef = useRef(false)
-  const segmentRef = useRef(0)
-  const [segment, setSegment] = useState(0)
-  const [completed, setCompleted] = useState(false)
+  const progressRef = useRef(0)
+  const lastProgressRef = useRef(0)
+  const progress = useScrollProgress(sectionRef)
   const [ready, setReady] = useState(false)
+  const [duration, setDuration] = useState(FALLBACK_DURATION)
 
-  // Paint loop — draw whatever frame the video has decoded onto the canvas.
+  useEffect(() => { progressRef.current = progress }, [progress])
+
+  // Canvas paint + scroll-driven seek loop. One continuous rAF that:
+  //   - paints the most recent decoded frame onto a 2D canvas every tick,
+  //   - issues a fastSeek(predicted) when the live progress diverges from
+  //     the current playback time by more than SEEK_TOLERANCE,
+  //   - drops backing-store resolution while scrolling fast.
   useEffect(() => {
     if (!ready) return
     const video = videoRef.current
     const canvas = canvasRef.current
     if (!video || !canvas) return
-
-    const ctx = canvas.getContext('2d', { alpha: false })
-    const dpr = Math.min(window.devicePixelRatio || 1, 2)
-    canvas.width = Math.max(1, Math.round((video.videoWidth || 1280) * dpr))
-    canvas.height = Math.max(1, Math.round((video.videoHeight || 720) * dpr))
+    const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true })
 
     let raf = null
+    let seeking = false
+    let lastScale = -1
+    const onSeeking = () => { seeking = true }
+    const onSeeked = () => { seeking = false }
+    video.addEventListener('seeking', onSeeking)
+    video.addEventListener('seeked', onSeeked)
+
+    const resizeCanvas = (scale) => {
+      const vw = video.videoWidth || 1280
+      const vh = video.videoHeight || 720
+      const dpr = Math.min(window.devicePixelRatio || 1, 2)
+      canvas.width = Math.max(1, Math.round(vw * scale * dpr))
+      canvas.height = Math.max(1, Math.round(vh * scale * dpr))
+    }
+
     const loop = () => {
+      const current = progressRef.current
+      const velocity = current - lastProgressRef.current
+      const absV = Math.abs(velocity)
+
+      // Adaptive resolution: fast > moderate > idle.
+      let wantScale = 1
+      if (absV > 0.005) wantScale = 0.5
+      else if (absV > 0.001) wantScale = 0.75
+      if (wantScale !== lastScale) {
+        lastScale = wantScale
+        resizeCanvas(wantScale)
+      }
+
       if (video.readyState >= 2) {
         try {
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
         } catch {
-          // frame not ready
+          // frame not decodable yet
         }
       }
+
+      if (!seeking) {
+        const predicted = Math.min(1, Math.max(0, current + velocity * VELOCITY_LOOKAHEAD))
+        const target = predicted * duration
+        if (Math.abs(video.currentTime - target) > SEEK_TOLERANCE) {
+          try {
+            if (typeof video.fastSeek === 'function') video.fastSeek(target)
+            else video.currentTime = target
+          } catch {
+            // ignore — not seekable yet
+          }
+        }
+      }
+      lastProgressRef.current = current
       raf = requestAnimationFrame(loop)
     }
+
     raf = requestAnimationFrame(loop)
-    return () => { if (raf) cancelAnimationFrame(raf) }
-  }, [ready])
-
-  const unlockPage = useCallback(() => {
-    completedRef.current = true
-    setCompleted(true)
-    const lenis = getLenis()
-    if (lenis) lenis.start()
-    document.body.style.overflow = ''
-  }, [])
-
-  const stepForward = useCallback(() => {
-    const video = videoRef.current
-    if (!video || lockedRef.current || completedRef.current) return
-    const current = segmentRef.current
-    if (current >= TOTAL_SEGMENTS) return
-    const startTime = current * SEGMENT_SECONDS
-    const endTime = (current + 1) * SEGMENT_SECONDS
-    lockedRef.current = true
-
-    try {
-      video.currentTime = startTime
-    } catch {
-      // ignore
-    }
-
-    const onTimeUpdate = () => {
-      if (video.currentTime >= endTime - 0.04) {
-        video.removeEventListener('timeupdate', onTimeUpdate)
-        try {
-          video.pause()
-          video.currentTime = endTime
-        } catch {
-          // ignore
-        }
-        const next = current + 1
-        segmentRef.current = next
-        setSegment(next)
-        if (next >= TOTAL_SEGMENTS) unlockPage()
-        setTimeout(() => { lockedRef.current = false }, STEP_DEBOUNCE_MS)
-      }
-    }
-    video.addEventListener('timeupdate', onTimeUpdate)
-
-    const playPromise = video.play()
-    if (playPromise && typeof playPromise.then === 'function') {
-      playPromise.catch(() => {
-        // Autoplay rejected — snap to the segment end and continue.
-        video.removeEventListener('timeupdate', onTimeUpdate)
-        try {
-          video.currentTime = endTime
-        } catch {
-          // ignore
-        }
-        const next = current + 1
-        segmentRef.current = next
-        setSegment(next)
-        if (next >= TOTAL_SEGMENTS) unlockPage()
-        setTimeout(() => { lockedRef.current = false }, STEP_DEBOUNCE_MS)
-      })
-    }
-  }, [unlockPage])
-
-  const stepBackward = useCallback(() => {
-    const video = videoRef.current
-    if (!video || lockedRef.current) return
-    const current = segmentRef.current
-    if (current <= 0) return
-    const prev = current - 1
-    const startTime = prev * SEGMENT_SECONDS
-
-    lockedRef.current = true
-    // Update the dot indicator immediately so the UI tracks the input,
-    // not the rewind animation.
-    segmentRef.current = prev
-    setSegment(prev)
-
-    try {
-      video.pause()
-    } catch {
-      // ignore
-    }
-
-    let t = video.currentTime
-    const reverseInterval = setInterval(() => {
-      t -= 0.3
-      if (t <= startTime) {
-        try {
-          video.currentTime = startTime
-        } catch {
-          // ignore
-        }
-        clearInterval(reverseInterval)
-        setTimeout(() => { lockedRef.current = false }, STEP_DEBOUNCE_MS)
-      } else {
-        try {
-          video.currentTime = t
-        } catch {
-          // ignore
-        }
-      }
-    }, 16)
-  }, [])
-
-  const jumpTo = useCallback((target) => {
-    const video = videoRef.current
-    if (!video || lockedRef.current) return
-    const clamped = Math.min(TOTAL_SEGMENTS, Math.max(0, target))
-    if (clamped === segmentRef.current) return
-    lockedRef.current = true
-    try {
-      video.pause()
-      video.currentTime = clamped * SEGMENT_SECONDS
-    } catch {
-      // ignore
-    }
-    segmentRef.current = clamped
-    setSegment(clamped)
-    if (clamped >= TOTAL_SEGMENTS) unlockPage()
-    setTimeout(() => { lockedRef.current = false }, STEP_DEBOUNCE_MS)
-  }, [unlockPage])
-
-  // Lock page scroll while stepping; wire wheel/touch/keyboard.
-  useEffect(() => {
-    if (!ready) return
-    const lenis = getLenis()
-    if (lenis) lenis.stop()
-    document.body.style.overflow = 'hidden'
-
-    let touchStartY = 0
-    const onWheel = (e) => {
-      if (completedRef.current) return
-      e.preventDefault()
-      if (lockedRef.current) return
-      if (e.deltaY > 5) stepForward()
-      else if (e.deltaY < -5) stepBackward()
-    }
-    const onTouchStart = (e) => { touchStartY = e.touches[0].clientY }
-    const onTouchEnd = (e) => {
-      if (completedRef.current) return
-      const dy = touchStartY - e.changedTouches[0].clientY
-      if (Math.abs(dy) < 50) return
-      if (dy > 0) stepForward()
-      else stepBackward()
-    }
-    const onKey = (e) => {
-      if (completedRef.current) return
-      if (e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ') {
-        e.preventDefault()
-        stepForward()
-      } else if (e.key === 'ArrowUp' || e.key === 'PageUp') {
-        e.preventDefault()
-        stepBackward()
-      }
-    }
-
-    window.addEventListener('wheel', onWheel, { passive: false })
-    window.addEventListener('touchstart', onTouchStart, { passive: true })
-    window.addEventListener('touchend', onTouchEnd, { passive: true })
-    window.addEventListener('keydown', onKey)
-
     return () => {
-      window.removeEventListener('wheel', onWheel)
-      window.removeEventListener('touchstart', onTouchStart)
-      window.removeEventListener('touchend', onTouchEnd)
-      window.removeEventListener('keydown', onKey)
-      if (!completedRef.current) {
-        const l = getLenis()
-        if (l) l.start()
-        document.body.style.overflow = ''
-      }
+      if (raf) cancelAnimationFrame(raf)
+      video.removeEventListener('seeking', onSeeking)
+      video.removeEventListener('seeked', onSeeked)
     }
-  }, [ready, stepForward, stepBackward])
+  }, [ready, duration])
 
-  // iOS needs play() called at least once before currentTime seeks paint.
-  const primeVideo = useCallback(() => {
+  // Prime the decoder: play → pause → seek to 0. iOS Safari refuses to paint
+  // frames from a video element via drawImage until play() has been called.
+  const primeVideo = useCallback(async () => {
     const video = videoRef.current
     if (!video || primedRef.current) return
     primedRef.current = true
-    const playPromise = video.play()
-    if (playPromise && typeof playPromise.then === 'function') {
-      playPromise
-        .then(() => {
-          video.pause()
-          video.currentTime = 0
-        })
-        .catch(() => {
-          primedRef.current = false
-        })
+    try {
+      await video.play()
+      video.pause()
+      video.currentTime = 0
+    } catch {
+      primedRef.current = false
+      const unlock = () => {
+        if (primedRef.current) return
+        primedRef.current = true
+        video.play()
+          .then(() => { video.pause(); video.currentTime = 0 })
+          .catch(() => { primedRef.current = false })
+        window.removeEventListener('touchstart', unlock)
+        window.removeEventListener('click', unlock)
+      }
+      window.addEventListener('touchstart', unlock, { once: true, passive: true })
+      window.addEventListener('click', unlock, { once: true })
     }
   }, [])
 
+  // Force the whole MP4 into the browser cache up-front so subsequent video
+  // range requests served by the <video> element come from disk and seeks
+  // land instantly.
+  useEffect(() => {
+    const ctrl = new AbortController()
+    fetch(VIDEO_URL, { signal: ctrl.signal }).catch(() => {})
+    return () => ctrl.abort()
+  }, [])
+
   const handleMetadata = () => {
+    const video = videoRef.current
+    if (!video) return
+    if (Number.isFinite(video.duration) && video.duration > 0) {
+      setDuration(video.duration)
+    }
     setReady(true)
     primeVideo()
   }
 
+  // Pick the current overlay by progress bucket.
+  const overlayIdx =
+    progress < OVERLAYS[0].upper ? 0 : progress < OVERLAYS[1].upper ? 1 : 2
+  const overlay = OVERLAYS[overlayIdx]
+
   return (
-    <section className="relative h-screen w-full">
+    <section ref={sectionRef} className="relative" style={{ height: `${HERO_VH}vh` }}>
       <div
-        className="relative h-screen w-full overflow-hidden bg-dark"
-        style={{ willChange: 'transform', transform: 'translateZ(0)' }}
+        className="sticky top-0 h-screen w-full overflow-hidden bg-dark"
+        style={{ willChange: 'transform', transform: 'translate3d(0,0,0)' }}
       >
         <video
           ref={videoRef}
-          src="/Lufara/videos/lufara_combined.mp4"
+          src={VIDEO_URL}
           muted
           playsInline
           preload="auto"
@@ -319,33 +232,9 @@ export default function Hero() {
           style={{ willChange: 'transform', transform: 'translateZ(0)' }}
           className="absolute inset-0 w-full h-full object-cover"
         />
-
         <div className="absolute inset-0 bg-dark/25 pointer-events-none" />
 
-        <OverlayText visible={segment === 1}>
-          <p className="font-kufi text-2xl md:text-4xl font-semibold text-white">
-            {OVERLAYS[1]}
-          </p>
-        </OverlayText>
-
-        <OverlayText visible={segment === 2}>
-          <p className="font-kufi text-2xl md:text-4xl font-semibold text-white">
-            {OVERLAYS[2]}
-          </p>
-        </OverlayText>
-
-        <OverlayText visible={segment === 3}>
-          <p className="font-playfair text-2xl md:text-4xl font-semibold text-white">
-            {OVERLAYS[3]}
-          </p>
-        </OverlayText>
-
-        <SegmentDots
-          active={segment}
-          total={TOTAL_SEGMENTS}
-          onJump={jumpTo}
-          hidden={completed}
-        />
+        <OverlayText idKey={overlayIdx} font={overlay.font} text={overlay.text} />
       </div>
     </section>
   )
