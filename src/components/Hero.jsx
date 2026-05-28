@@ -78,8 +78,8 @@ export default function Hero() {
   const { t, i18n } = useTranslation()
   const sectionRef = useRef(null)
   const videoRef = useRef(null)
-  const rafRef = useRef(null)
   const primedRef = useRef(false)
+  const progressRef = useRef(0)
   const progress = useScrollProgress(sectionRef)
   const [ready, setReady] = useState(false)
   const [duration, setDuration] = useState(FALLBACK_DURATION)
@@ -87,25 +87,42 @@ export default function Hero() {
   const isArabic = i18n.language === 'ar'
   const fontClass = isArabic ? 'font-kufi' : 'font-playfair'
 
-  const syncVideo = useCallback(() => {
-    const video = videoRef.current
-    if (!video || !ready) return
-    const target = progress * duration
-    if (Math.abs(video.currentTime - target) > 0.1) {
-      try {
-        video.currentTime = target
-      } catch {
-        // ignore — video may not be seekable yet
-      }
-    }
-  }, [progress, ready, duration])
+  useEffect(() => {
+    progressRef.current = progress
+  }, [progress])
 
   useEffect(() => {
-    rafRef.current = requestAnimationFrame(syncVideo)
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+    const video = videoRef.current
+    if (!video || !ready) return
+
+    let raf = null
+    let seeking = false
+    const onSeeking = () => { seeking = true }
+    const onSeeked = () => { seeking = false }
+    video.addEventListener('seeking', onSeeking)
+    video.addEventListener('seeked', onSeeked)
+
+    const loop = () => {
+      if (!seeking) {
+        const target = progressRef.current * duration
+        if (Math.abs(video.currentTime - target) > 0.03) {
+          try {
+            video.currentTime = target
+          } catch {
+            // ignore — video may not be seekable yet
+          }
+        }
+      }
+      raf = requestAnimationFrame(loop)
     }
-  }, [syncVideo])
+    raf = requestAnimationFrame(loop)
+
+    return () => {
+      if (raf) cancelAnimationFrame(raf)
+      video.removeEventListener('seeking', onSeeking)
+      video.removeEventListener('seeked', onSeeked)
+    }
+  }, [ready, duration])
 
   const primeVideo = useCallback(() => {
     const video = videoRef.current
