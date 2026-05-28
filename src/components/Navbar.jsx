@@ -15,15 +15,16 @@ export default function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false)
 
   useEffect(() => {
-    // Hero section is 400vh tall with a sticky 100vh child; reveal navbar
-    // once the user has scrolled past the pinned scroll range. Also track
-    // scroll depth (0–1 past the hero) to drive logo size + backdrop blur.
+    // Hero is a single 100vh stepped panel that locks body scroll until the
+    // user reaches the final segment. Once the page can scroll, reveal the
+    // navbar as soon as the user moves past most of the hero. Scroll depth
+    // (0–1 past the hero) drives logo size + backdrop blur.
     let ticking = false
     let rafId = null
 
     const compute = () => {
       ticking = false
-      const threshold = window.innerHeight * 3 - 80
+      const threshold = window.innerHeight * 0.6
       setPastHero(window.scrollY > threshold)
       const past = Math.max(0, window.scrollY - threshold)
       // Saturate around 600px past hero.

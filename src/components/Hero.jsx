@@ -1,56 +1,25 @@
 import { useRef, useEffect, useState, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { motion, AnimatePresence } from 'framer-motion'
+import { getLenis } from '../lib/lenisInstance'
 
 const FALLBACK_DURATION = 30
-const HERO_VH = 400
 const PARTICLE_COUNT = 20
 
-function useScrollProgress(sectionRef) {
-  const [progress, setProgress] = useState(0)
+// 6 anchor times → 5 segments between them. The user-facing "5 dots" maps
+// to the 5 segment endpoints (anchors 1..5).
+const SEGMENT_ANCHORS_REL = [0, 0.2, 0.4, 0.6, 0.8, 1.0]
+const TOTAL_SEGMENTS = SEGMENT_ANCHORS_REL.length - 1 // 5
 
-  useEffect(() => {
-    let ticking = false
-    let rafId = null
-
-    const compute = () => {
-      ticking = false
-      if (!sectionRef.current) return
-      const rect = sectionRef.current.getBoundingClientRect()
-      const sectionHeight = sectionRef.current.offsetHeight - window.innerHeight
-      const scrolled = -rect.top
-      setProgress(Math.min(1, Math.max(0, scrolled / sectionHeight)))
-    }
-
-    const onScroll = () => {
-      if (ticking) return
-      ticking = true
-      rafId = requestAnimationFrame(compute)
-    }
-
-    window.addEventListener('scroll', onScroll, { passive: true })
-    compute()
-    return () => {
-      window.removeEventListener('scroll', onScroll)
-      if (rafId) cancelAnimationFrame(rafId)
-    }
-  }, [sectionRef])
-
-  return progress
-}
-
-function OverlayText({ visible, progress, parallaxStrength = 80, children }) {
-  // Text drifts upward at ~0.8x the scroll progress within the sticky pin,
-  // giving it a slightly slower-than-scroll feel.
-  const offset = -progress * parallaxStrength
+function OverlayText({ visible, children }) {
   return (
-    <AnimatePresence>
+    <AnimatePresence mode="wait">
       {visible && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: offset }}
-          exit={{ opacity: 0, y: offset - 20 }}
-          transition={{ duration: 0.6, ease: 'easeOut' }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -20 }}
+          transition={{ duration: 0.5, ease: 'easeOut' }}
           className="absolute inset-0 flex items-center justify-center pointer-events-none"
         >
           <div className="bg-dark/40 backdrop-blur-xs rounded-2xl px-10 py-6 max-w-xl text-center">
@@ -63,8 +32,6 @@ function OverlayText({ visible, progress, parallaxStrength = 80, children }) {
 }
 
 function Particles({ progress }) {
-  // 20 cream particles drifting at slightly different speeds (1.0x–1.4x).
-  // Opacity fades as the user nears the end of the hero.
   const particles = useMemo(() => {
     let seed = 1
     const rand = () => {
@@ -112,8 +79,6 @@ function Particles({ progress }) {
 }
 
 function ParallaxBackground({ progress }) {
-  // Soft cream gradient that drifts slowly behind the video — visible only
-  // when the video hasn't loaded yet or at the very edges of object-cover.
   return (
     <div
       aria-hidden
@@ -147,121 +112,280 @@ function DownArrow() {
   )
 }
 
-function ProgressBar({ progress }) {
+function SegmentDots({ active, total, onJump, hidden }) {
   return (
-    <div className="absolute right-4 md:right-8 top-1/2 -translate-y-1/2 h-40 w-1 rounded-full bg-white/20 z-20">
-      <motion.div
-        className="w-full rounded-full bg-white/80"
-        style={{ height: `${progress * 100}%` }}
-        transition={{ duration: 0.1 }}
-      />
+    <div
+      className={`absolute end-4 md:end-8 top-1/2 -translate-y-1/2 flex flex-col gap-3 z-20 transition-opacity duration-300 ${
+        hidden ? 'opacity-0 pointer-events-none' : 'opacity-100'
+      }`}
+    >
+      {Array.from({ length: total }).map((_, i) => {
+        const filled = active >= i + 1
+        return (
+          <button
+            key={i}
+            type="button"
+            aria-label={`Jump to segment ${i + 1}`}
+            onClick={() => onJump(i + 1)}
+            className="group p-2 cursor-pointer"
+          >
+            <span
+              className={`block rounded-full transition-all duration-300 ${
+                filled
+                  ? 'bg-cream w-3 h-3'
+                  : 'bg-cream/30 w-2 h-2 group-hover:bg-cream/60'
+              }`}
+            />
+          </button>
+        )
+      })}
     </div>
+  )
+}
+
+function ScrollHint() {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: [0.4, 1, 0.4], y: [0, 6, 0] }}
+      transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut' }}
+      className="absolute bottom-10 inset-x-0 flex flex-col items-center gap-2 text-cream/80 pointer-events-none z-20"
+    >
+      <span className="font-kufi text-xs tracking-wider uppercase">scroll</span>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 5v14M5 12l7 7 7-7" />
+      </svg>
+    </motion.div>
   )
 }
 
 export default function Hero() {
   const { t, i18n } = useTranslation()
-  const sectionRef = useRef(null)
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
   const primedRef = useRef(false)
-  const preloadedRef = useRef(false)
-  const preloadingRef = useRef(false)
-  const progressRef = useRef(0)
-  const lastProgressRef = useRef(0)
-  const scrollingRef = useRef(false)
-  const scrollIdleTimerRef = useRef(null)
-  const progress = useScrollProgress(sectionRef)
+  const lockedRef = useRef(false)
+  const completedRef = useRef(false)
+  const segmentIdxRef = useRef(0)
+  const [segmentIdx, setSegmentIdx] = useState(0)
+  const [completed, setCompleted] = useState(false)
   const [ready, setReady] = useState(false)
   const [duration, setDuration] = useState(FALLBACK_DURATION)
 
   const isArabic = i18n.language === 'ar'
   const fontClass = isArabic ? 'font-kufi' : 'font-playfair'
 
-  useEffect(() => {
-    progressRef.current = progress
-    scrollingRef.current = true
-    if (scrollIdleTimerRef.current) clearTimeout(scrollIdleTimerRef.current)
-    scrollIdleTimerRef.current = setTimeout(() => {
-      scrollingRef.current = false
-    }, 150)
-  }, [progress])
+  const segments = useMemo(
+    () => SEGMENT_ANCHORS_REL.map((p) => p * duration),
+    [duration],
+  )
 
+  // Smooth progress for parallax — derived from segment index, not scroll.
+  const parallaxProgress = segmentIdx / TOTAL_SEGMENTS
+
+  // --- Canvas paint loop (draws whatever frame the video has) -----------
   useEffect(() => {
+    if (!ready) return
     const video = videoRef.current
     const canvas = canvasRef.current
-    if (!video || !canvas || !ready) return
+    if (!video || !canvas) return
 
     const ctx = canvas.getContext('2d', { alpha: false })
     let raf = null
-    let seeking = false
-    let lastScale = -1
-    const onSeeking = () => { seeking = true }
-    const onSeeked = () => { seeking = false }
-    video.addEventListener('seeking', onSeeking)
-    video.addEventListener('seeked', onSeeked)
 
-    const resizeCanvas = (scale) => {
+    const resizeCanvas = () => {
       const vw = video.videoWidth || 1280
       const vh = video.videoHeight || 720
       const dpr = Math.min(window.devicePixelRatio || 1, 2)
-      canvas.width = Math.max(1, Math.round(vw * scale * dpr))
-      canvas.height = Math.max(1, Math.round(vh * scale * dpr))
+      canvas.width = Math.max(1, Math.round(vw * dpr))
+      canvas.height = Math.max(1, Math.round(vh * dpr))
     }
+    resizeCanvas()
 
     const loop = () => {
-      // Lower internal resolution while the user is actively scrolling,
-      // restore on idle. Cuts GPU bandwidth during fast scrubs.
-      const wantScale = scrollingRef.current ? 0.75 : 1
-      if (wantScale !== lastScale) {
-        lastScale = wantScale
-        resizeCanvas(wantScale)
-      }
-
-      // Paint the most recently decoded frame every tick — keeps the
-      // canvas current even while the next seek is in flight.
       if (video.readyState >= 2) {
         try {
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
         } catch {
-          // ignore — frame not yet decodable
+          // frame not ready
         }
       }
-
-      // Drive seek from scroll position, with a small velocity-based
-      // look-ahead. Coefficient is kept small so direction reversals
-      // don't overshoot meaningfully past the seek tolerance.
-      if (!seeking && !preloadingRef.current) {
-        const current = progressRef.current
-        const velocity = current - lastProgressRef.current
-        const predicted = Math.min(1, Math.max(0, current + velocity * 0.2))
-        const target = predicted * duration
-        if (Math.abs(video.currentTime - target) > 0.03) {
-          try {
-            if (typeof video.fastSeek === 'function') {
-              video.fastSeek(target)
-            } else {
-              video.currentTime = target
-            }
-          } catch {
-            // ignore — video may not be seekable yet
-          }
-        }
-        lastProgressRef.current = current
-      }
-
       raf = requestAnimationFrame(loop)
     }
-
     raf = requestAnimationFrame(loop)
 
     return () => {
       if (raf) cancelAnimationFrame(raf)
-      video.removeEventListener('seeking', onSeeking)
-      video.removeEventListener('seeked', onSeeked)
     }
-  }, [ready, duration])
+  }, [ready])
 
+  // --- Step controls ----------------------------------------------------
+  const finishStep = useCallback((nextIdx) => {
+    segmentIdxRef.current = nextIdx
+    setSegmentIdx(nextIdx)
+    if (nextIdx >= TOTAL_SEGMENTS) {
+      completedRef.current = true
+      setCompleted(true)
+      // Unlock page scroll so the next wheel/touch drives Product into view.
+      const lenis = getLenis()
+      if (lenis) lenis.start()
+      document.body.style.overflow = ''
+    }
+    // Debounce so a single wheel inertia burst doesn't fire multiple steps.
+    setTimeout(() => {
+      lockedRef.current = false
+    }, 250)
+  }, [])
+
+  const stepForward = useCallback(() => {
+    const video = videoRef.current
+    if (!video || lockedRef.current || completedRef.current) return
+    const current = segmentIdxRef.current
+    if (current >= TOTAL_SEGMENTS) return
+    const nextIdx = current + 1
+    const endTime = segments[nextIdx]
+    lockedRef.current = true
+
+    const onTimeUpdate = () => {
+      if (video.currentTime >= endTime - 0.04) {
+        video.removeEventListener('timeupdate', onTimeUpdate)
+        try {
+          video.pause()
+          video.currentTime = endTime
+        } catch {
+          // ignore
+        }
+        finishStep(nextIdx)
+      }
+    }
+    video.addEventListener('timeupdate', onTimeUpdate)
+
+    const playPromise = video.play()
+    if (playPromise && typeof playPromise.then === 'function') {
+      playPromise.catch(() => {
+        // Autoplay was blocked — fall back to a snap seek.
+        video.removeEventListener('timeupdate', onTimeUpdate)
+        try {
+          video.currentTime = endTime
+        } catch {
+          // ignore
+        }
+        finishStep(nextIdx)
+      })
+    }
+  }, [segments, finishStep])
+
+  const stepBackward = useCallback(() => {
+    const video = videoRef.current
+    if (!video || lockedRef.current) return
+    const current = segmentIdxRef.current
+    if (current <= 0) return
+    const prevIdx = current - 1
+    lockedRef.current = true
+    try {
+      video.pause()
+      video.currentTime = segments[prevIdx]
+    } catch {
+      // ignore
+    }
+    segmentIdxRef.current = prevIdx
+    setSegmentIdx(prevIdx)
+    setTimeout(() => {
+      lockedRef.current = false
+    }, 200)
+  }, [segments])
+
+  const jumpTo = useCallback(
+    (idx) => {
+      const video = videoRef.current
+      if (!video || lockedRef.current) return
+      const clamped = Math.min(TOTAL_SEGMENTS, Math.max(0, idx))
+      if (clamped === segmentIdxRef.current) return
+      lockedRef.current = true
+      try {
+        video.pause()
+        video.currentTime = segments[clamped]
+      } catch {
+        // ignore
+      }
+      segmentIdxRef.current = clamped
+      setSegmentIdx(clamped)
+      if (clamped >= TOTAL_SEGMENTS) {
+        completedRef.current = true
+        setCompleted(true)
+        const lenis = getLenis()
+        if (lenis) lenis.start()
+        document.body.style.overflow = ''
+      }
+      setTimeout(() => {
+        lockedRef.current = false
+      }, 200)
+    },
+    [segments],
+  )
+
+  // --- Scroll lock + wheel/touch handlers -------------------------------
+  useEffect(() => {
+    if (!ready) return
+
+    // Lock global scroll while we're driving the hero.
+    const lenis = getLenis()
+    if (lenis) lenis.stop()
+    document.body.style.overflow = 'hidden'
+
+    let touchStartY = 0
+
+    const onWheel = (e) => {
+      if (completedRef.current) return
+      e.preventDefault()
+      if (lockedRef.current) return
+      if (e.deltaY > 5) stepForward()
+      else if (e.deltaY < -5) stepBackward()
+    }
+
+    const onTouchStart = (e) => {
+      touchStartY = e.touches[0].clientY
+    }
+
+    const onTouchEnd = (e) => {
+      if (completedRef.current) return
+      const deltaY = touchStartY - e.changedTouches[0].clientY
+      if (Math.abs(deltaY) < 50) return
+      if (deltaY > 0) stepForward()
+      else stepBackward()
+    }
+
+    const onKey = (e) => {
+      if (completedRef.current) return
+      if (e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ') {
+        e.preventDefault()
+        stepForward()
+      } else if (e.key === 'ArrowUp' || e.key === 'PageUp') {
+        e.preventDefault()
+        stepBackward()
+      }
+    }
+
+    window.addEventListener('wheel', onWheel, { passive: false })
+    window.addEventListener('touchstart', onTouchStart, { passive: true })
+    window.addEventListener('touchend', onTouchEnd, { passive: true })
+    window.addEventListener('keydown', onKey)
+
+    return () => {
+      window.removeEventListener('wheel', onWheel)
+      window.removeEventListener('touchstart', onTouchStart)
+      window.removeEventListener('touchend', onTouchEnd)
+      window.removeEventListener('keydown', onKey)
+      // If the user navigates away mid-flow, restore page scroll.
+      if (!completedRef.current) {
+        const l = getLenis()
+        if (l) l.start()
+        document.body.style.overflow = ''
+      }
+    }
+  }, [ready, stepForward, stepBackward])
+
+  // --- Priming + metadata ----------------------------------------------
   const primeVideo = useCallback(() => {
     const video = videoRef.current
     if (!video || primedRef.current) return
@@ -271,46 +395,13 @@ export default function Hero() {
       playPromise
         .then(() => {
           video.pause()
+          video.currentTime = 0
         })
         .catch(() => {
           primedRef.current = false
-          // Autoplay blocked — wait for a user gesture
-          const unlock = () => {
-            if (primedRef.current) return
-            primedRef.current = true
-            video.play().then(() => video.pause()).catch(() => {
-              primedRef.current = false
-            })
-            window.removeEventListener('touchstart', unlock)
-            window.removeEventListener('click', unlock)
-          }
-          window.addEventListener('touchstart', unlock, { once: true, passive: true })
-          window.addEventListener('click', unlock, { once: true })
+          // Will retry on first user gesture via wheel/touch handlers.
         })
     }
-  }, [])
-
-  const preloadFrames = useCallback(async () => {
-    const video = videoRef.current
-    if (!video || preloadedRef.current) return
-    if (!Number.isFinite(video.duration) || video.duration <= 0) return
-    preloadedRef.current = true
-    preloadingRef.current = true
-    const steps = 60
-    for (let i = 0; i <= steps; i++) {
-      try {
-        const t = (i / steps) * video.duration
-        if (typeof video.fastSeek === 'function') {
-          video.fastSeek(t)
-        } else {
-          video.currentTime = t
-        }
-      } catch {
-        // ignore
-      }
-      await new Promise((r) => setTimeout(r, 16))
-    }
-    preloadingRef.current = false
   }, [])
 
   const handleMetadata = () => {
@@ -323,28 +414,22 @@ export default function Hero() {
     primeVideo()
   }
 
-  const isVisible = (start, end) => progress >= start && progress <= end
-
   return (
-    <section ref={sectionRef} className="relative" style={{ height: `${HERO_VH}vh` }}>
+    <section className="relative h-screen w-full">
       <div
-        className="sticky top-0 h-screen w-full overflow-hidden bg-dark"
+        className="relative h-screen w-full overflow-hidden bg-dark"
         style={{ willChange: 'transform', transform: 'translateZ(0)' }}
       >
-        <ParallaxBackground progress={progress} />
+        <ParallaxBackground progress={parallaxProgress} />
 
         <video
           ref={videoRef}
           src="/Lufara/videos/lufara_combined.mp4"
           muted
           playsInline
-          autoPlay
-          loop={false}
           preload="auto"
           onLoadedMetadata={handleMetadata}
           onLoadedData={handleMetadata}
-          onCanPlay={primeVideo}
-          onCanPlayThrough={preloadFrames}
           className="absolute inset-0 w-full h-full object-cover opacity-0 pointer-events-none"
         />
         <motion.canvas
@@ -356,11 +441,11 @@ export default function Hero() {
           className="absolute inset-0 w-full h-full object-cover"
         />
 
-        <Particles progress={progress} />
+        <Particles progress={parallaxProgress} />
 
-        <div className="absolute inset-0 bg-dark/20" />
+        <div className="absolute inset-0 bg-dark/20 pointer-events-none" />
 
-        <OverlayText visible={isVisible(0, 0.15)} progress={progress}>
+        <OverlayText visible={segmentIdx === 0}>
           <h1 className="font-playfair text-4xl md:text-6xl font-bold text-white mb-3">
             Lufara
           </h1>
@@ -369,29 +454,36 @@ export default function Hero() {
           </p>
         </OverlayText>
 
-        <OverlayText visible={isVisible(0.2, 0.4)} progress={progress}>
+        <OverlayText visible={segmentIdx === 1}>
           <p className={`${fontClass} text-2xl md:text-4xl font-semibold text-white`}>
             {t('hero.from_earth')}
           </p>
         </OverlayText>
 
-        <OverlayText visible={isVisible(0.45, 0.65)} progress={progress}>
+        <OverlayText visible={segmentIdx === 2}>
           <p className={`${fontClass} text-2xl md:text-4xl font-semibold text-white`}>
             {t('hero.natural')}
           </p>
         </OverlayText>
 
-        <OverlayText visible={isVisible(0.7, 0.85)} progress={progress}>
+        <OverlayText visible={segmentIdx === 3}>
           <p className={`${fontClass} text-2xl md:text-4xl font-semibold text-white`}>
             {t('hero.experience')}
           </p>
         </OverlayText>
 
-        <OverlayText visible={isVisible(0.9, 1)} progress={progress}>
+        <OverlayText visible={segmentIdx === 4}>
           <DownArrow />
         </OverlayText>
 
-        <ProgressBar progress={progress} />
+        <SegmentDots
+          active={segmentIdx}
+          total={TOTAL_SEGMENTS}
+          onJump={jumpTo}
+          hidden={completed}
+        />
+
+        {!completed && segmentIdx === 0 && <ScrollHint />}
       </div>
     </section>
   )

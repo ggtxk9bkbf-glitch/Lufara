@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import Lenis from 'lenis'
+import { setLenis } from './lib/lenisInstance'
 import './i18n'
 import Navbar from './components/Navbar'
 import Hero from './components/Hero'
@@ -16,6 +17,7 @@ function App() {
       touchMultiplier: 2,
       smoothWheel: true,
     })
+    setLenis(lenis)
 
     let rafId
     const raf = (time) => {
@@ -27,6 +29,7 @@ function App() {
     return () => {
       cancelAnimationFrame(rafId)
       lenis.destroy()
+      setLenis(null)
     }
   }, [])
 
