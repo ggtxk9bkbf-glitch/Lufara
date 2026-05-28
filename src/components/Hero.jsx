@@ -167,16 +167,39 @@ export default function Hero() {
     const current = segmentRef.current
     if (current <= 0) return
     const prev = current - 1
+    const startTime = prev * SEGMENT_SECONDS
+
     lockedRef.current = true
+    // Update the dot indicator immediately so the UI tracks the input,
+    // not the rewind animation.
+    segmentRef.current = prev
+    setSegment(prev)
+
     try {
       video.pause()
-      video.currentTime = prev * SEGMENT_SECONDS
     } catch {
       // ignore
     }
-    segmentRef.current = prev
-    setSegment(prev)
-    setTimeout(() => { lockedRef.current = false }, STEP_DEBOUNCE_MS)
+
+    let t = video.currentTime
+    const reverseInterval = setInterval(() => {
+      t -= 0.3
+      if (t <= startTime) {
+        try {
+          video.currentTime = startTime
+        } catch {
+          // ignore
+        }
+        clearInterval(reverseInterval)
+        setTimeout(() => { lockedRef.current = false }, STEP_DEBOUNCE_MS)
+      } else {
+        try {
+          video.currentTime = t
+        } catch {
+          // ignore
+        }
+      }
+    }, 16)
   }, [])
 
   const jumpTo = useCallback((target) => {
