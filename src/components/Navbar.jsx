@@ -14,15 +14,29 @@ export default function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false)
 
   useEffect(() => {
-    const onScroll = () => {
-      // Hero section is 600vh tall with a sticky 100vh child, so the pinned
-      // scroll range ends at scrollY = 5 * viewport height. Show the navbar
-      // only once the user has scrolled past it.
-      setPastHero(window.scrollY > window.innerHeight * 5 - 80)
+    // Hero section is 400vh tall with a sticky 100vh child, so the pinned
+    // scroll range ends at scrollY = 3 * viewport height. Show the navbar
+    // only once the user has scrolled past it.
+    let ticking = false
+    let rafId = null
+
+    const compute = () => {
+      ticking = false
+      setPastHero(window.scrollY > window.innerHeight * 3 - 80)
     }
+
+    const onScroll = () => {
+      if (ticking) return
+      ticking = true
+      rafId = requestAnimationFrame(compute)
+    }
+
     window.addEventListener('scroll', onScroll, { passive: true })
-    onScroll()
-    return () => window.removeEventListener('scroll', onScroll)
+    compute()
+    return () => {
+      window.removeEventListener('scroll', onScroll)
+      if (rafId) cancelAnimationFrame(rafId)
+    }
   }, [])
 
   const toggleLanguage = () => {

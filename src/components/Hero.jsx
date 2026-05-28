@@ -3,21 +3,36 @@ import { useTranslation } from 'react-i18next'
 import { motion, AnimatePresence } from 'framer-motion'
 
 const FALLBACK_DURATION = 30
+const HERO_VH = 400
 
 function useScrollProgress(sectionRef) {
   const [progress, setProgress] = useState(0)
 
   useEffect(() => {
-    const onScroll = () => {
+    let ticking = false
+    let rafId = null
+
+    const compute = () => {
+      ticking = false
       if (!sectionRef.current) return
       const rect = sectionRef.current.getBoundingClientRect()
       const sectionHeight = sectionRef.current.offsetHeight - window.innerHeight
       const scrolled = -rect.top
       setProgress(Math.min(1, Math.max(0, scrolled / sectionHeight)))
     }
+
+    const onScroll = () => {
+      if (ticking) return
+      ticking = true
+      rafId = requestAnimationFrame(compute)
+    }
+
     window.addEventListener('scroll', onScroll, { passive: true })
-    onScroll()
-    return () => window.removeEventListener('scroll', onScroll)
+    compute()
+    return () => {
+      window.removeEventListener('scroll', onScroll)
+      if (rafId) cancelAnimationFrame(rafId)
+    }
   }, [sectionRef])
 
   return progress
@@ -107,7 +122,11 @@ export default function Hero() {
         const target = progressRef.current * duration
         if (Math.abs(video.currentTime - target) > 0.03) {
           try {
-            video.currentTime = target
+            if (typeof video.fastSeek === 'function') {
+              video.fastSeek(target)
+            } else {
+              video.currentTime = target
+            }
           } catch {
             // ignore — video may not be seekable yet
           }
@@ -165,8 +184,11 @@ export default function Hero() {
   const isVisible = (start, end) => progress >= start && progress <= end
 
   return (
-    <section ref={sectionRef} className="relative" style={{ height: '600vh' }}>
-      <div className="sticky top-0 h-screen w-full overflow-hidden bg-dark">
+    <section ref={sectionRef} className="relative" style={{ height: `${HERO_VH}vh` }}>
+      <div
+        className="sticky top-0 h-screen w-full overflow-hidden bg-dark"
+        style={{ willChange: 'transform', transform: 'translateZ(0)' }}
+      >
         <video
           ref={videoRef}
           src="/Lufara/videos/lufara_combined.mp4"
@@ -178,6 +200,7 @@ export default function Hero() {
           onLoadedMetadata={handleMetadata}
           onLoadedData={handleMetadata}
           onCanPlay={primeVideo}
+          style={{ willChange: 'transform', transform: 'translateZ(0)' }}
           className="absolute inset-0 w-full h-full object-cover"
         />
 
