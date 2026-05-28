@@ -106,6 +106,32 @@ export default function Hero() {
     }
   }, [syncVideo])
 
+  const primeVideo = useCallback(() => {
+    const video = videoRef.current
+    if (!video) return
+    const playPromise = video.play()
+    if (playPromise && typeof playPromise.then === 'function') {
+      playPromise
+        .then(() => {
+          video.pause()
+          video.currentTime = 0
+        })
+        .catch(() => {
+          // Autoplay blocked — wait for a user gesture
+          const unlock = () => {
+            video.play().then(() => {
+              video.pause()
+              video.currentTime = 0
+            }).catch(() => {})
+            window.removeEventListener('touchstart', unlock)
+            window.removeEventListener('click', unlock)
+          }
+          window.addEventListener('touchstart', unlock, { once: true, passive: true })
+          window.addEventListener('click', unlock, { once: true })
+        })
+    }
+  }, [])
+
   const handleMetadata = () => {
     const video = videoRef.current
     if (!video) return
@@ -113,6 +139,7 @@ export default function Hero() {
       setDuration(video.duration)
     }
     setReady(true)
+    primeVideo()
   }
 
   const isVisible = (start, end) => progress >= start && progress <= end
@@ -125,9 +152,12 @@ export default function Hero() {
           src="/Lufara/videos/lufara_combined.mp4"
           muted
           playsInline
+          autoPlay
+          loop={false}
           preload="auto"
           onLoadedMetadata={handleMetadata}
           onLoadedData={handleMetadata}
+          onCanPlay={primeVideo}
           className="absolute inset-0 w-full h-full object-cover"
         />
 
