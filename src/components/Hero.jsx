@@ -93,8 +93,14 @@ export default function Hero() {
   const { t, i18n } = useTranslation()
   const sectionRef = useRef(null)
   const videoRef = useRef(null)
+  const canvasRef = useRef(null)
   const primedRef = useRef(false)
+  const preloadedRef = useRef(false)
+  const preloadingRef = useRef(false)
   const progressRef = useRef(0)
+  const lastProgressRef = useRef(0)
+  const scrollingRef = useRef(false)
+  const scrollIdleTimerRef = useRef(null)
   const progress = useScrollProgress(sectionRef)
   const [ready, setReady] = useState(false)
   const [duration, setDuration] = useState(FALLBACK_DURATION)
@@ -104,22 +110,62 @@ export default function Hero() {
 
   useEffect(() => {
     progressRef.current = progress
+    scrollingRef.current = true
+    if (scrollIdleTimerRef.current) clearTimeout(scrollIdleTimerRef.current)
+    scrollIdleTimerRef.current = setTimeout(() => {
+      scrollingRef.current = false
+    }, 150)
   }, [progress])
 
   useEffect(() => {
     const video = videoRef.current
-    if (!video || !ready) return
+    const canvas = canvasRef.current
+    if (!video || !canvas || !ready) return
 
+    const ctx = canvas.getContext('2d', { alpha: false })
     let raf = null
     let seeking = false
+    let lastScale = -1
     const onSeeking = () => { seeking = true }
     const onSeeked = () => { seeking = false }
     video.addEventListener('seeking', onSeeking)
     video.addEventListener('seeked', onSeeked)
 
+    const resizeCanvas = (scale) => {
+      const vw = video.videoWidth || 1280
+      const vh = video.videoHeight || 720
+      const dpr = Math.min(window.devicePixelRatio || 1, 2)
+      canvas.width = Math.max(1, Math.round(vw * scale * dpr))
+      canvas.height = Math.max(1, Math.round(vh * scale * dpr))
+    }
+
     const loop = () => {
-      if (!seeking) {
-        const target = progressRef.current * duration
+      // Lower internal resolution while the user is actively scrolling,
+      // restore on idle. Cuts GPU bandwidth during fast scrubs.
+      const wantScale = scrollingRef.current ? 0.75 : 1
+      if (wantScale !== lastScale) {
+        lastScale = wantScale
+        resizeCanvas(wantScale)
+      }
+
+      // Paint the most recently decoded frame every tick — keeps the
+      // canvas current even while the next seek is in flight.
+      if (video.readyState >= 2) {
+        try {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+        } catch {
+          // ignore — frame not yet decodable
+        }
+      }
+
+      // Drive seek from scroll position, with a small velocity-based
+      // look-ahead. Coefficient is kept small so direction reversals
+      // don't overshoot meaningfully past the seek tolerance.
+      if (!seeking && !preloadingRef.current) {
+        const current = progressRef.current
+        const velocity = current - lastProgressRef.current
+        const predicted = Math.min(1, Math.max(0, current + velocity * 0.2))
+        const target = predicted * duration
         if (Math.abs(video.currentTime - target) > 0.03) {
           try {
             if (typeof video.fastSeek === 'function') {
@@ -131,9 +177,12 @@ export default function Hero() {
             // ignore — video may not be seekable yet
           }
         }
+        lastProgressRef.current = current
       }
+
       raf = requestAnimationFrame(loop)
     }
+
     raf = requestAnimationFrame(loop)
 
     return () => {
@@ -171,6 +220,29 @@ export default function Hero() {
     }
   }, [])
 
+  const preloadFrames = useCallback(async () => {
+    const video = videoRef.current
+    if (!video || preloadedRef.current) return
+    if (!Number.isFinite(video.duration) || video.duration <= 0) return
+    preloadedRef.current = true
+    preloadingRef.current = true
+    const steps = 60
+    for (let i = 0; i <= steps; i++) {
+      try {
+        const t = (i / steps) * video.duration
+        if (typeof video.fastSeek === 'function') {
+          video.fastSeek(t)
+        } else {
+          video.currentTime = t
+        }
+      } catch {
+        // ignore
+      }
+      await new Promise((r) => setTimeout(r, 16))
+    }
+    preloadingRef.current = false
+  }, [])
+
   const handleMetadata = () => {
     const video = videoRef.current
     if (!video) return
@@ -200,6 +272,11 @@ export default function Hero() {
           onLoadedMetadata={handleMetadata}
           onLoadedData={handleMetadata}
           onCanPlay={primeVideo}
+          onCanPlayThrough={preloadFrames}
+          className="absolute inset-0 w-full h-full object-cover opacity-0 pointer-events-none"
+        />
+        <canvas
+          ref={canvasRef}
           style={{ willChange: 'transform', transform: 'translateZ(0)' }}
           className="absolute inset-0 w-full h-full object-cover"
         />
